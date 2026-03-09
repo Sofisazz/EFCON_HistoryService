@@ -1,0 +1,29 @@
+databaseChangeLog:
+  - changeSet:
+      id: create-table-notes
+      author: Sof
+      comment: first liquibase migration
+      changes:
+        - createTable:
+            tableName: notes
+            columns:
+              - column:
+                  name: note_id
+                  type: int
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: int
+                  constraints:
+                    nullable: false
+              - column:
+                  name: mark
+                  type: int
+                  constraints:
+                    nullable: false
+              - column:
+                  name: comment
+                  type: varchar(1000)
