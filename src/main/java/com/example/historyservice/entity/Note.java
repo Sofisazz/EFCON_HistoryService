@@ -24,6 +24,12 @@ public class Note {
     @Column(nullable = false)
     private Integer userId;
 
+    @NotNull(message = "Id рецепта обязателен")
+    @Column(nullable = false)
+    private Integer recipeId;
+
+    private Integer eatingPlanId;
+
     @NotNull(message = "Оценка обязательна (1-5 баллов)")
     @Max(value = 5, message = "Оценка должна быть не выше 5")
     @Min(value = 1, message = "Оценка должна быть не ниже 1")

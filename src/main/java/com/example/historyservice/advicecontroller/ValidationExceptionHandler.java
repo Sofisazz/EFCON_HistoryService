@@ -1,5 +1,6 @@
 package com.example.historyservice.advicecontroller;
 
+import com.example.historyservice.exceptions.ExistException;
 import com.example.historyservice.exceptions.MarkException;
 import com.example.historyservice.exceptions.MissingException;
 import jakarta.validation.ConstraintViolationException;
@@ -7,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -61,6 +63,16 @@ public class ValidationExceptionHandler {
 
     @ExceptionHandler(MarkException.class)
     public ResponseEntity<String> MarkException(MarkException ex) {
+        return new ResponseEntity<>(ex.getMessage(), HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(ExistException.class)
+    public ResponseEntity<String> ExistException(ExistException ex) {
+        return new ResponseEntity<>(ex.getMessage(), HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<String> MissingServletRequestParameterException(MissingServletRequestParameterException ex) {
         return new ResponseEntity<>(ex.getMessage(), HttpStatus.BAD_REQUEST);
     }
 }

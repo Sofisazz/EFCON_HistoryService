@@ -1,4 +1,4 @@
-package com.example.historyservice.service;
+package com.example.historyservice.service.V1;
 
 import com.example.historyservice.dto.NoteDto;
 import org.springframework.data.domain.Page;
