@@ -9,7 +9,9 @@ import com.example.historyservice.feignclient.MenuClient;
 import com.example.historyservice.feignclient.UserClient;
 import com.example.historyservice.repository.NoteRepository;
 import com.example.historyservice.service.V2.NoteServiceV2;
-import feign.FeignException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -30,8 +34,12 @@ public class NoteServiceImplV2 implements NoteServiceV2 {
     private final MenuClient menuClient;
     private final UserClient userClient;
 
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
+
     @Override
     public List<NoteFullRecipeDto> findFullHistoryByUserIdForRecipe(int userId) {
+        circuitBreakerUserExists(userId);
+
         List<Note> notes = noteRepository.findByUserId(userId);
 
         List<NoteFullRecipeDto> noteFullList = new ArrayList<>();
@@ -46,6 +54,8 @@ public class NoteServiceImplV2 implements NoteServiceV2 {
 
     @Override
     public List<NoteFullPlanDto> findFullHistoryByUserIdForPlans(int userId) {
+        circuitBreakerUserExists(userId);
+
         List<Note> notes = noteRepository.findByUserIdAndEatingPlanIdIsNotNull(userId);
 
         List<NoteFullPlanDto> noteFullList = new ArrayList<>();
@@ -61,9 +71,7 @@ public class NoteServiceImplV2 implements NoteServiceV2 {
     @Transactional
     @Override
     public NoteDto createNoteForUser(NoteDto noteDto, int userId) {
-        if (!userClient.checkUserExists(userId)) {
-            throw new MissingException("Пользователь с id '" + userId + "' не найден");
-        }
+        circuitBreakerUserExists(userId);
 
         if (noteDto.getEatingPlanId() != null) {
             checkEatingPlanForCreateNote(noteDto, userId);
@@ -81,11 +89,9 @@ public class NoteServiceImplV2 implements NoteServiceV2 {
     @Transactional
     @Override
     public void deleteNote(int id, int userId) {
-        if (!userClient.checkUserExists(userId)) {
-            throw new MissingException("Пользователь с id '" + userId + "' не найден");
-        }
+        circuitBreakerUserExists(userId);
 
-        if (!noteRepository.existByIdAndUserId(id, userId)) {
+        if (!noteRepository.existsByIdAndUserId(id, userId)) {
             throw new MissingException("Заметки с id '" + id + "' для пользователя с id '" + userId + "' не существует");
         }
 
@@ -93,11 +99,7 @@ public class NoteServiceImplV2 implements NoteServiceV2 {
     }
 
     private void checkRecipeForCreateNote(NoteDto noteDto, int userId) {
-        try {
-            menuClient.getRecipeById(noteDto.getRecipeId(), userId);
-        } catch (FeignException e) {
-            throw new MissingException("Рецепт не найден или недоступен.");
-        }
+        circuitBreakerGetRecipe(noteDto.getRecipeId(), userId);
 
         boolean isDuplicate = noteRepository.existsByUserIdAndRecipeIdAndMarkAndComment(userId, noteDto.getRecipeId(), noteDto.getMark(), noteDto.getComment());
 
@@ -108,15 +110,7 @@ public class NoteServiceImplV2 implements NoteServiceV2 {
     }
 
     private void checkEatingPlanForCreateNote(NoteDto noteDto, int userId) {
-        try {
-            boolean existsInPlan = menuClient.existEatingPlanWithRecipe(noteDto.getEatingPlanId(), noteDto.getRecipeId(), userId);
-
-            if (!existsInPlan) {
-                throw new MissingException("Рецепт с id '" + noteDto.getRecipeId() + "' не входит в состав плана питания с id '" + noteDto.getEatingPlanId() + "'");
-            }
-        } catch (FeignException e) {
-            throw new MissingException("Ошибка при проверке состава плана питания.");
-        }
+        circuitBreakerEatingPlanExistsWithRecipe(noteDto.getEatingPlanId(), noteDto.getRecipeId(), userId);
 
         boolean isDuplicate = noteRepository.existsByUserIdAndEatingPlanIdAndRecipeIdAndMarkAndComment(userId, noteDto.getEatingPlanId(), noteDto.getRecipeId(), noteDto.getMark(), noteDto.getComment());
 
@@ -126,15 +120,19 @@ public class NoteServiceImplV2 implements NoteServiceV2 {
     }
 
     private NoteFullRecipeDto createFullNoteRecipeDto(Note note){
-        RecipeDto recipe = menuClient.getRecipeById(note.getRecipeId(), note.getUserId());
+        RecipeDto recipe = circuitBreakerGetRecipe(note.getRecipeId(), note.getUserId());
+
+        Optional.ofNullable(recipe)
+                .orElseThrow(() -> new MissingException("Menu сервис временно недоступен"));
+
         NoteFullRecipeDto fullDto = new NoteFullRecipeDto();
 
         fullDto.setId(note.getId());
         fullDto.setUserId(note.getUserId());
-        fullDto.setRecipeName(recipe.getName());
-        fullDto.setCalories(recipe.getCaloriesFor100());
         fullDto.setMark(note.getMark());
         fullDto.setComment(note.getComment());
+        fullDto.setRecipeName(recipe.getName());
+        fullDto.setCalories(recipe.getCaloriesFor100());
 
         return fullDto;
     }
@@ -150,31 +148,78 @@ public class NoteServiceImplV2 implements NoteServiceV2 {
 
 
         if (note.getEatingPlanId() != null) {
-            try {
-                EatingPlanDto plan = menuClient.getEatingPlan(note.getEatingPlanId(), note.getUserId());
+            EatingPlanDto plan = circuitBreakerGetEatingPlan(note.getEatingPlanId(), note.getUserId());
 
-                fullDto.setType(plan.getType());
-                fullDto.setNumberOfPeople(plan.getNumberOfPeople());
+            fullDto.setType(plan.getType());
+            fullDto.setNumberOfPeople(plan.getNumberOfPeople());
 
-                if ("OUTSIDE".equals(plan.getStatus())) {
-                    fullDto.setLocation("OUTSIDE");
-                } else {
-                    fullDto.setLocation("HOME");
-                }
-            } catch (Exception ex) {
-                log.info(ex.getMessage());
+            if ("OUTSIDE".equals(plan.getStatus())) {
+                fullDto.setLocation("OUTSIDE");
+            } else {
+                fullDto.setLocation("HOME");
             }
         }
 
         if (note.getRecipeId() != null) {
-            try {
-                RecipeDto recipe = menuClient.getRecipeById(note.getRecipeId(), note.getUserId());
+                RecipeDto recipe = circuitBreakerGetRecipe(note.getRecipeId(), note.getUserId());
+
                 fullDto.setRecipeName(recipe.getName());
-            } catch (Exception ex) {
-                log.info(ex.getMessage());
-            }
         }
 
         return fullDto;
+    }
+
+    private void circuitBreakerUserExists(Integer userId){
+        boolean exists = executeWithCircuitBreaker("userService", () -> userClient.checkUserExists(userId));
+
+        if (!exists) {
+            throw new MissingException("Пользователя с id '" + userId + "' не существует");
+        }
+    }
+
+    private EatingPlanDto circuitBreakerGetEatingPlan(int planId, int userId) {
+        EatingPlanDto eatingPlan = executeWithCircuitBreaker("menuService", () -> menuClient.getEatingPlan(planId, userId));
+
+        Optional.ofNullable(eatingPlan)
+                .orElseThrow(() -> new MissingException("План питания с id '" + planId + "' для пользователя с id '" + userId + "' не существует"));
+
+        return eatingPlan;
+    }
+
+    private void circuitBreakerEatingPlanExistsWithRecipe(int planId, int recipeId, int userId) {
+        boolean exists = executeWithCircuitBreaker("menuService", () -> menuClient.existEatingPlanWithRecipe(planId, recipeId, userId));
+
+        if (!exists) {
+            throw new MissingException("Рецепт с id '" + recipeId + "' не входит в состав плана питания с id '" + planId + "'");
+        }
+    }
+
+    private RecipeDto circuitBreakerGetRecipe(int recipeId, int userId) {
+        RecipeDto recipe = executeWithCircuitBreaker("menuService", () -> menuClient.getRecipeById(recipeId, userId));
+
+        Optional.ofNullable(recipe)
+                .orElseThrow(() -> new MissingException("Рецепт с id '" + recipeId + "' для пользователя с id '" + userId + "' не существует"));
+
+        return recipe;
+    }
+
+    private <T> T executeWithCircuitBreaker(String circuitBreakerName, Supplier<T> supplier) {
+        CircuitBreaker cb = circuitBreakerRegistry.circuitBreaker(circuitBreakerName);
+        Supplier<T> decoratedSupplier = CircuitBreaker.decorateSupplier(cb, supplier);
+
+        try {
+            return decoratedSupplier.get();
+        } catch (CallNotPermittedException e) {
+
+            log.warn("Circuit Breaker '{}' разомкнут. Сервис недоступен", circuitBreakerName);
+            throw new MissingException(circuitBreakerName + " временно недоступен");
+        } catch (MissingException e) {
+
+            throw e;
+        } catch (Exception e) {
+
+            log.error("Ошибка при вызове сервиса через CB '{}': {}", circuitBreakerName, e.getMessage(), e);
+            throw new MissingException("Ошибка связи с " + circuitBreakerName);
+        }
     }
 }

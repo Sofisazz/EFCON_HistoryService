@@ -17,5 +17,5 @@ public interface NoteRepository extends JpaRepository<Note, Integer> {
 
     boolean existsByUserIdAndRecipeIdAndMarkAndComment(int userId, Integer recipeId, Integer mark, String comment);
 
-    boolean existByIdAndUserId(int id, int userId);
+    boolean existsByIdAndUserId(int id, int userId);
 }
