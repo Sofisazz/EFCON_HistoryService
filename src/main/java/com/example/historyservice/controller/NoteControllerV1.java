@@ -1,7 +1,7 @@
 package com.example.historyservice.controller;
 
 import com.example.historyservice.dto.NoteDto;
-import com.example.historyservice.service.NoteService;
+import com.example.historyservice.service.V1.NoteService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;

@@ -1,19 +1,19 @@
-package com.example.historyservice.service.serviceImpl;
+package com.example.historyservice.service.V1.serviceImpl;
 
-import com.example.historyservice.dto.NoteDto;
+import com.example.historyservice.dto.*;
 import com.example.historyservice.dto.mapping.NoteMapper;
 import com.example.historyservice.entity.Note;
-import com.example.historyservice.exceptions.MarkException;
 import com.example.historyservice.exceptions.MissingException;
 import com.example.historyservice.repository.NoteRepository;
-import com.example.historyservice.service.NoteService;
+import com.example.historyservice.service.V1.NoteService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class NoteServiceImpl implements NoteService {
@@ -35,7 +35,6 @@ public class NoteServiceImpl implements NoteService {
     @Transactional
     @Override
     public NoteDto createNote(NoteDto noteDto) {
-        checkMark(noteDto);
 
         return noteMapper.toDto(noteRepository.save(noteMapper.toEntity(noteDto)));
     }
@@ -46,7 +45,6 @@ public class NoteServiceImpl implements NoteService {
         Note receivedNote = noteRepository.findById(id)
                 .orElseThrow(() -> new MissingException("Запись id '" + id + "' не найдена"));
 
-        checkMark(noteDto);
         noteMapper.updateFromDto(noteDto, receivedNote);
         noteRepository.save(receivedNote);
 
@@ -61,11 +59,5 @@ public class NoteServiceImpl implements NoteService {
         }
 
         noteRepository.deleteById(id);
-    }
-
-    private void checkMark(NoteDto noteDto){
-        if (noteDto.getMark() % 1 != 0) {
-            throw new MarkException("Введите целое число (оценка может быть от 1 до 5 баллов)");
-        }
     }
 }

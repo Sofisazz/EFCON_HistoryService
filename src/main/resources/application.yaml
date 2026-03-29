@@ -2,6 +2,8 @@ server:
   port: 8088
 
 spring:
+  application:
+    name: history-service
   datasource:
     url: jdbc:postgresql://localhost:5434/history_service
     username: postgres
@@ -13,3 +15,34 @@ spring:
   liquibase:
     change-log: classpath:db/changelog/db.changelog-1.yaml
     enabled: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:9090/eureka/
+  instance:
+    prefer-ip-address: true
+
+resilience4j.circuitbreaker:
+  configs:
+    default:
+      registerHealthIndicator: true
+      slidingWindowSize: 10
+      minimumNumberOfCalls: 5
+      permittedNumberOfCallsInHalfOpenState: 3
+      automaticTransitionFromOpenToHalfOpenEnabled: true
+      failureRateThreshold: 50
+      waitDurationInOpenState: 10000
+      eventConsumerBufferSize: 10
+      ignoreExceptions:
+        - com.example.historyservice.exceptions.MissingException
+        - feign.FeignException$BadRequest
+  instances:
+    userService:
+      baseConfig: default
+      waitDurationInOpenState: 15s
+      failureRateThreshold: 60
+    menuService:
+      baseConfig: default
+      waitDurationInOpenState: 15s
+      failureRateThreshold: 60

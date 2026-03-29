@@ -20,6 +20,14 @@ databaseChangeLog:
                   constraints:
                     nullable: false
               - column:
+                  name: recipe_id
+                  type: int
+                  constraints:
+                    nullable: false
+              - column:
+                  name: eating_plan_id
+                  type: int
+              - column:
                   name: mark
                   type: int
                   constraints:
